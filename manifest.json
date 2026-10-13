@@ -1,0 +1,12 @@
+{
+  "CODE": "smart_files_widget",
+  "VERSION": "1.0.0",
+  "HANDLER": "https://ВАШ-САЙТ.netlify.app/index.html",
+  "TITLE": "Файлы из Смарт-процесса",
+  "DESCRIPTION": "Виджет для отображения файлов из связанного Смарт-процесса",
+  "PLACEMENT": [
+    "CRM_DEAL_DETAIL_TAB"
+  ],
+  "SCOPE": ["crm", "disk"],
+  "LANG": "ru"
+}

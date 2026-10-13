@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Файлы Смарт-процесса</title>
+  <!-- Подключаем BX24 SDK -->
+  <script src="//api.bitrix24.com/api/v1/"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 16px;
+      background: #f7f9fc;
+      color: #333;
+    }
+    .widget-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #2067b0;
+    }
+    .file-list { display: flex; flex-direction: column; gap: 8px; }
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      background: white;
+      border: 1px solid #e5e9ef;
+      border-radius: 8px;
+      transition: border-color 0.2s;
+    }
+    .file-item:hover { border-color: #2067b0; }
+    .file-icon { font-size: 24px; }
+    .file-info { flex: 1; min-width: 0; }
+    .file-name {
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-size { font-size: 12px; color: #8a94a6; margin-top: 2px; }
+    .download-btn {
+      padding: 6px 12px;
+      background: #2067b0;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .download-btn:hover { background: #1a5591; }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #8a94a6;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #8a94a6;
+    }
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="loading">Загрузка...</div>
+  </div>
+
+  <script>
+    // === КОНФИГУРАЦИЯ ===
+    // Замените на название вашего Смарт-процесса
+    const SMART_TYPE_TITLE = 'Название вашего Смарт-процесса';
+    // UF-код поля с файлами в Смарт-процессе
+    const FILE_FIELD_CODE = 'UF_CRM_FILE_FIELD';
+
+    // === УТИЛИТЫ ===
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function getFileIcon(name) {
+      const ext = name.split('.').pop().toLowerCase();
+      const icons = {
+        pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
+        jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️',
+        zip: '📦', rar: '📦', '7z': '📦',
+        mp4: '🎬', mp3: '🎵', txt: '📃'
+      };
+      return icons[ext] || '📎';
+    }
+
+    function showError(message) {
+      document.getElementById('app').innerHTML =
+        '<div class="error">⚠️ ' + message + '</div>';
+    }
+
+    // === ОСНОВНАЯ ЛОГИКА ===
+    BX24.init(function() {
+      // Шаг 1: Получаем ID текущей Сделки
+      BX24.placement.options(function(opts) {
+        const dealId = opts.ID;
+        if (!dealId) return showError('Не удалось определить ID Сделки');
+
+        // Шаг 2: Находим Смарт-процесс, привязанный к Сделке
+        // (пример: через поле привязки в Сделке)
+        BX24.callMethod('crm.deal.get', { id: dealId }, function(dealResult) {
+          if (!dealResult.data()) return showError('Сделка не найдена');
+
+          const deal = dealResult.data();
+          // Получаем ID связанного Смарт-процесса из поля привязки
+          const smartId = deal['UF_CRM_SMART_LINK']; // замените на ваш UF-код
+
+          if (!smartId) {
+            document.getElementById('app').innerHTML =
+              '<div class="empty-state">📂 К этой Сделке не привязан Смарт-процесс</div>';
+            return;
+          }
+
+          // Шаг 3: Получаем файлы из Смарт-процесса
+          BX24.callMethod('crm.item.get', {
+            id: smartId,
+            entityTypeId: 'DYNAMIC_XX' // замените XX на ID вашего типа
+          }, function(itemResult) {
+            if (!itemResult.data()) return showError('Смарт-процесс не найден');
+
+            const item = itemResult.data();
+            const fileIds = item[FILE_FIELD_CODE] || [];
+
+            if (!fileIds.length) {
+              document.getElementById('app').innerHTML =
+                '<div class="empty-state">📂 В Смарт-процессе нет файлов</div>';
+              return;
+            }
+
+            // Шаг 4: Получаем информацию о каждом файле
+            let loaded = 0;
+            const files = [];
+
+            fileIds.forEach(function(fileId) {
+              BX24.callMethod('disk.file.get', { id: fileId }, function(fileResult) {
+                if (fileResult.data()) files.push(fileResult.data());
+                loaded++;
+
+                if (loaded === fileIds.length) renderFiles(files);
+              });
+            });
+          });
+        });
+      });
+    });
+
+    // === РЕНДЕРИНГ ===
+    function renderFiles(files) {
+      let html = '<div class="widget-title">📁 Файлы из Смарт-процесса</div>';
+      html += '<div class="file-list">';
+
+      files.forEach(function(file) {
+        html += '<div class="file-item">' +
+          '<div class="file-icon">' + getFileIcon(file.NAME) + '</div>' +
+          '<div class="file-info">' +
+            '<div class="file-name">' + file.NAME + '</div>' +
+            '<div class="file-size">' + formatSize(file.SIZE) + '</div>' +
+          '</div>' +
+          '<a class="download-btn" href="' + file.DOWNLOAD_URL +
+            '&auth=' + BX24.getAuth().access_token +
+            '" target="_blank">Скачать</a>' +
+        '</div>';
+      });
+
+      html += '</div>';
+      document.getElementById('app').innerHTML = html;
+
+      // Подгоняем высоту фрейма под содержимое
+      BX24.placement.call('setHeight', document.body.scrollHeight + 20);
+    }
+  </script>
+</body>
+</html>
