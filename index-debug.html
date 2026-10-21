@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Фото ковров до стирки (DEBUG)</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 16px;
+      background: #f7f9fc;
+      color: #333;
+    }
+    .debug-box {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .debug-title {
+      font-weight: bold;
+      color: #856404;
+      margin-bottom: 8px;
+    }
+    .debug-log {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .success { color: green; }
+    .error { color: red; }
+    .info { color: blue; }
+  </style>
+</head>
+<body>
+  <div class="debug-box">
+    <div class="debug-title">🔍 Отладка виджета</div>
+    <div id="debug-log" class="debug-log">Загрузка...</div>
+  </div>
+
+  <div id="app"></div>
+
+  <script>
+    // Отладочный логгер
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('debug-log');
+      const timestamp = new Date().toLocaleTimeString();
+      const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+      logDiv.innerHTML += `\n[${timestamp}] ${prefix} ${message}`;
+      console.log(`[${type}]`, message);
+    }
+
+    log('Страница загружена');
+    log('User Agent: ' + navigator.userAgent);
+    log('URL: ' + window.location.href);
+    log('В iframe: ' + (window.self !== window.top));
+
+    // Проверяем BX24 SDK
+    log('Проверяем BX24 SDK...');
+    log('typeof BX24: ' + typeof BX24);
+
+    if (typeof BX24 === 'undefined') {
+      log('BX24 не загружен! Пытаемся загрузить вручную...', 'error');
+      
+      // Пытаемся загрузить SDK вручную
+      const script = document.createElement('script');
+      script.src = 'https://api.bitrix24.com/api/v1/';
+      script.onload = function() {
+        log('SDK загружен вручную!', 'success');
+        log('typeof BX24: ' + typeof BX24);
+        initWidget();
+      };
+      script.onerror = function() {
+        log('Не удалось загрузить SDK!', 'error');
+        log('Возможные причины:', 'error');
+        log('- Проблема с интернетом', 'error');
+        log('- CORS блокировка', 'error');
+        log('- Неправильный URL', 'error');
+      };
+      document.head.appendChild(script);
+    } else {
+      log('BX24 уже загружен!', 'success');
+      initWidget();
+    }
+
+    function initWidget() {
+      log('Вызываем BX24.init()...');
+      
+      BX24.init(function() {
+        log('BX24.init() выполнен успешно!', 'success');
+        
+        // Получаем контекст placement
+        log('Получаем параметры placement...');
+        BX24.placement.options(function(opts) {
+          log('Placement options получены:', 'success');
+          log(JSON.stringify(opts, null, 2));
+          
+          const dealId = opts.ID;
+          if (!dealId) {
+            log('ID Сделки не получен!', 'error');
+            document.getElementById('app').innerHTML = '<div class="debug-box">❌ Не удалось определить ID Сделки</div>';
+            return;
+          }
+          
+          log('ID Сделки: ' + dealId, 'success');
+          log('Загружаем данные Сделки...');
+          
+          // Получаем данные Сделки
+          BX24.callMethod('crm.deal.get', { id: dealId }, function(dealResult) {
+            if (dealResult.data()) {
+              log('Сделка получена!', 'success');
+              const deal = dealResult.data();
+              log('Название сделки: ' + deal.TITLE);
+              
+              // Получаем массив ID Смарт-процессов
+              const smartIds = deal['UF_CRM_1751384703'] || [];
+              log('Найдено Смарт-процессов: ' + smartIds.length, 'success');
+              log('ID: ' + JSON.stringify(smartIds));
+              
+              if (smartIds.length === 0) {
+                document.getElementById('app').innerHTML = '<div class="debug-box">📂 К этой Сделке не привязаны процессы</div>';
+                return;
+              }
+              
+              // Получаем файлы из каждого Смарт-процесса
+              const allFiles = [];
+              let processed = 0;
+              
+              smartIds.forEach(function(smartId) {
+                log('Загружаем Смарт-процесс ID=' + smartId + '...');
+                
+                BX24.callMethod('crm.item.get', {
+                  id: smartId,
+                  entityTypeId: 'DYNAMIC_1042'
+                }, function(itemResult) {
+                  if (itemResult.data()) {
+                    log('Смарт-процесс ' + smartId + ' получен!', 'success');
+                    const item = itemResult.data();
+                    const fileIds = item['UF_CRM_11_1788517182224'] || [];
+                    log('Найдено файлов: ' + fileIds.length);
+                    
+                    // Получаем информацию о файлах
+                    let filesProcessed = 0;
+                    fileIds.forEach(function(fileId) {
+                      BX24.callMethod('disk.file.get', { id: fileId }, function(fileResult) {
+                        if (fileResult.data()) {
+                          allFiles.push(fileResult.data());
+                        }
+                        filesProcessed++;
+                        if (filesProcessed === fileIds.length) {
+                          processed++;
+                          if (processed === smartIds.length) {
+                            renderFiles(allFiles);
+                          }
+                        }
+                      });
+                    });
+                  } else {
+                    log('Ошибка загрузки Смарт-процесса ' + smartId, 'error');
+                    processed++;
+                    if (processed === smartIds.length) {
+                      renderFiles(allFiles);
+                    }
+                  }
+                });
+              });
+            } else {
+              log('Ошибка получения Сделки!', 'error');
+              log('Ответ: ' + JSON.stringify(dealResult));
+            }
+          });
+        });
+      });
+    }
+
+    function renderFiles(files) {
+      log('Рендерим ' + files.length + ' файлов...', 'success');
+      
+      if (files.length === 0) {
+        document.getElementById('app').innerHTML = '<div class="debug-box">📂 В привязанных процессах нет фото</div>';
+        return;
+      }
+
+      let html = '<div style="font-size: 16px; font-weight: 600; color: #2067b0; margin-bottom: 12px;">📸 Фото ковров до стирки (' + files.length + ')</div>';
+      html += '<div style="display: flex; flex-direction: column; gap: 8px;">';
+
+      files.forEach(function(file) {
+        html += '<div style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: white; border: 1px solid #e5e9ef; border-radius: 8px;">' +
+          '<div style="font-size: 24px;">🖼️</div>' +
+          '<div style="flex: 1; min-width: 0;">' +
+            '<div style="font-size: 14px; font-weight: 500;">' + file.NAME + '</div>' +
+            '<div style="font-size: 12px; color: #8a94a6; margin-top: 2px;">' + formatSize(file.SIZE) + '</div>' +
+          '</div>' +
+          '<a style="padding: 6px 12px; background: #2067b0; color: white; border-radius: 6px; font-size: 12px; text-decoration: none;" href="' + file.DOWNLOAD_URL + '&auth=' + BX24.getAuth().access_token + '" target="_blank">Скачать</a>' +
+        '</div>';
+      });
+
+      html += '</div>';
+      document.getElementById('app').innerHTML = html;
+      
+      log('Виджет отрисован успешно!', 'success');
+      BX24.placement.call('setHeight', document.body.scrollHeight + 20);
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+  </script>
+</body>
+</html>
