@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Файлы Смарт-процесса</title>
+  <title>Фото ковров до стирки</title>
   <!-- Подключаем BX24 SDK -->
   <script src="//api.bitrix24.com/api/v1/"></script>
   <style>
@@ -80,10 +80,10 @@
 
   <script>
     // === КОНФИГУРАЦИЯ ===
-    // Замените на название вашего Смарт-процесса
-    const SMART_TYPE_TITLE = 'Название вашего Смарт-процесса';
+    // Название для заголовка виджета (необязательно, можно оставить как есть)
+    const SMART_TYPE_TITLE = 'Фото ковров до стирки';
     // UF-код поля с файлами в Смарт-процессе
-    const FILE_FIELD_CODE = 'UF_CRM_FILE_FIELD';
+    const FILE_FIELD_CODE = 'UF_CRM_11_1788517182224';
 
     // === УТИЛИТЫ ===
     function formatSize(bytes) {
@@ -115,48 +115,65 @@
         const dealId = opts.ID;
         if (!dealId) return showError('Не удалось определить ID Сделки');
 
-        // Шаг 2: Находим Смарт-процесс, привязанный к Сделке
-        // (пример: через поле привязки в Сделке)
+        // Шаг 2: Получаем массив ID привязанных Смарт-процессов
         BX24.callMethod('crm.deal.get', { id: dealId }, function(dealResult) {
           if (!dealResult.data()) return showError('Сделка не найдена');
 
           const deal = dealResult.data();
-          // Получаем ID связанного Смарт-процесса из поля привязки
-          const smartId = deal['UF_CRM_SMART_LINK']; // замените на ваш UF-код
+          // ✅ Поле множественное — получаем массив ID
+          const smartIds = deal['UF_CRM_1751384703'] || [];
 
-          if (!smartId) {
+          if (!smartIds.length) {
             document.getElementById('app').innerHTML =
-              '<div class="empty-state">📂 К этой Сделке не привязан Смарт-процесс</div>';
+              '<div class="empty-state">📂 К этой Сделке не привязаны процессы</div>';
             return;
           }
 
-          // Шаг 3: Получаем файлы из Смарт-процесса
-          BX24.callMethod('crm.item.get', {
-            id: smartId,
-            entityTypeId: 'DYNAMIC_XX' // замените XX на ID вашего типа
-          }, function(itemResult) {
-            if (!itemResult.data()) return showError('Смарт-процесс не найден');
+          // Шаг 3: Для каждого Смарт-процесса получаем файлы
+          const allFiles = [];
+          let smartProcessesLoaded = 0;
 
-            const item = itemResult.data();
-            const fileIds = item[FILE_FIELD_CODE] || [];
+          smartIds.forEach(function(smartId) {
+            BX24.callMethod('crm.item.get', {
+              id: smartId,
+              entityTypeId: 'DYNAMIC_1042' // ✅ ID типа вашего Смарт-процесса
+            }, function(itemResult) {
+              if (itemResult.data()) {
+                const item = itemResult.data();
+                const fileIds = item[FILE_FIELD_CODE] || [];
 
-            if (!fileIds.length) {
-              document.getElementById('app').innerHTML =
-                '<div class="empty-state">📂 В Смарт-процессе нет файлов</div>';
-              return;
-            }
+                // Получаем информацию о каждом файле
+                let filesLoaded = 0;
+                
+                if (fileIds.length === 0) {
+                  smartProcessesLoaded++;
+                  if (smartProcessesLoaded === smartIds.length) {
+                    renderFiles(allFiles);
+                  }
+                  return;
+                }
 
-            // Шаг 4: Получаем информацию о каждом файле
-            let loaded = 0;
-            const files = [];
+                fileIds.forEach(function(fileId) {
+                  BX24.callMethod('disk.file.get', { id: fileId }, function(fileResult) {
+                    if (fileResult.data()) {
+                      allFiles.push(fileResult.data());
+                    }
+                    filesLoaded++;
 
-            fileIds.forEach(function(fileId) {
-              BX24.callMethod('disk.file.get', { id: fileId }, function(fileResult) {
-                if (fileResult.data()) files.push(fileResult.data());
-                loaded++;
-
-                if (loaded === fileIds.length) renderFiles(files);
-              });
+                    if (filesLoaded === fileIds.length) {
+                      smartProcessesLoaded++;
+                      if (smartProcessesLoaded === smartIds.length) {
+                        renderFiles(allFiles);
+                      }
+                    }
+                  });
+                });
+              } else {
+                smartProcessesLoaded++;
+                if (smartProcessesLoaded === smartIds.length) {
+                  renderFiles(allFiles);
+                }
+              }
             });
           });
         });
@@ -165,7 +182,13 @@
 
     // === РЕНДЕРИНГ ===
     function renderFiles(files) {
-      let html = '<div class="widget-title">📁 Файлы из Смарт-процесса</div>';
+      if (files.length === 0) {
+        document.getElementById('app').innerHTML =
+          '<div class="empty-state">📂 В привязанных процессах нет фото</div>';
+        return;
+      }
+
+      let html = '<div class="widget-title">📸 Фото ковров до стирки (' + files.length + ')</div>';
       html += '<div class="file-list">';
 
       files.forEach(function(file) {
