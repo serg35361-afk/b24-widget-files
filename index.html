@@ -2,212 +2,101 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Фото ковров до стирки</title>
-  <!-- Подключаем BX24 SDK -->
   <script src="//api.bitrix24.com/api/v1/"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 16px;
-      background: #f7f9fc;
-      color: #333;
-    }
-    .widget-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #2067b0;
-    }
+    body { font-family: -apple-system, sans-serif; padding: 16px; background: #f7f9fc; }
+    .debug-box { background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .debug-title { font-weight: bold; color: #856404; margin-bottom: 8px; }
+    .debug-log { background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px; font-family: monospace; font-size: 11px; white-space: pre-wrap; max-height: 400px; overflow-y: auto; line-height: 1.6; }
+    .widget-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #2067b0; }
     .file-list { display: flex; flex-direction: column; gap: 8px; }
-    .file-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 12px;
-      background: white;
-      border: 1px solid #e5e9ef;
-      border-radius: 8px;
-      transition: border-color 0.2s;
-    }
+    .file-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: white; border: 1px solid #e5e9ef; border-radius: 8px; }
     .file-item:hover { border-color: #2067b0; }
     .file-icon { font-size: 24px; }
     .file-info { flex: 1; min-width: 0; }
-    .file-name {
-      font-size: 14px;
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
+    .file-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .file-size { font-size: 12px; color: #8a94a6; margin-top: 2px; }
-    .download-btn {
-      padding: 6px 12px;
-      background: #2067b0;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 12px;
-      cursor: pointer;
-      text-decoration: none;
-    }
+    .download-btn { padding: 6px 12px; background: #2067b0; color: white; border-radius: 6px; font-size: 12px; text-decoration: none; }
     .download-btn:hover { background: #1a5591; }
-    .empty-state {
-      text-align: center;
-      padding: 40px 20px;
-      color: #8a94a6;
-    }
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: #8a94a6;
-    }
-    .error {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      color: #991b1b;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 13px;
-    }
+    .empty-state { text-align: center; padding: 40px; color: #8a94a6; }
+    .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 8px; }
   </style>
 </head>
 <body>
-  <div id="app">
-    <div class="loading">Загрузка...</div>
+  <div class="debug-box">
+    <div class="debug-title">🔍 Отладка виджета</div>
+    <div id="debug-log" class="debug-log">Инициализация...</div>
   </div>
-
+  <div id="app"></div>
   <script>
-    // === КОНФИГУРАЦИЯ ===
-    // Название для заголовка виджета (необязательно, можно оставить как есть)
-    const SMART_TYPE_TITLE = 'Фото ковров до стирки';
-    // UF-код поля с файлами в Смарт-процессе
-    const FILE_FIELD_CODE = 'UF_CRM_11_1788517182224';
-
-    // === УТИЛИТЫ ===
-    function formatSize(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    var FILE_FIELD_CODE = 'UF_CRM_11_1788517182224';
+    function log(msg, type) {
+      type = type || 'info';
+      var el = document.getElementById('debug-log');
+      var t = new Date().toLocaleTimeString();
+      var icon = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+      el.innerHTML += '\n[' + t + '] ' + icon + ' ' + msg;
     }
-
-    function getFileIcon(name) {
-      const ext = name.split('.').pop().toLowerCase();
-      const icons = {
-        pdf: '📄', doc: '📝', docx: '📝', xls: '📊', xlsx: '📊',
-        jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️',
-        zip: '📦', rar: '📦', '7z': '📦',
-        mp4: '🎬', mp3: '🎵', txt: '📃'
-      };
-      return icons[ext] || '📎';
+    function formatSize(b) {
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+      return (b / 1048576).toFixed(1) + ' MB';
     }
-
-    function showError(message) {
-      document.getElementById('app').innerHTML =
-        '<div class="error">⚠️ ' + message + '</div>';
-    }
-
-    // === ОСНОВНАЯ ЛОГИКА ===
-    BX24.init(function() {
-      // Шаг 1: Получаем ID текущей Сделки
-      BX24.placement.options(function(opts) {
-        const dealId = opts.ID;
-        if (!dealId) return showError('Не удалось определить ID Сделки');
-
-        // Шаг 2: Получаем массив ID привязанных Смарт-процессов
-        BX24.callMethod('crm.deal.get', { id: dealId }, function(dealResult) {
-          if (!dealResult.data()) return showError('Сделка не найдена');
-
-          const deal = dealResult.data();
-          // ✅ Поле множественное — получаем массив ID
-          const smartIds = deal['UF_CRM_1751384703'] || [];
-
-          if (!smartIds.length) {
-            document.getElementById('app').innerHTML =
-              '<div class="empty-state">📂 К этой Сделке не привязаны процессы</div>';
-            return;
-          }
-
-          // Шаг 3: Для каждого Смарт-процесса получаем файлы
-          const allFiles = [];
-          let smartProcessesLoaded = 0;
-
-          smartIds.forEach(function(smartId) {
-            BX24.callMethod('crm.item.get', {
-              id: smartId,
-              entityTypeId: 'DYNAMIC_1042' // ✅ ID типа вашего Смарт-процесса
-            }, function(itemResult) {
-              if (itemResult.data()) {
-                const item = itemResult.data();
-                const fileIds = item[FILE_FIELD_CODE] || [];
-
-                // Получаем информацию о каждом файле
-                let filesLoaded = 0;
-                
-                if (fileIds.length === 0) {
-                  smartProcessesLoaded++;
-                  if (smartProcessesLoaded === smartIds.length) {
-                    renderFiles(allFiles);
-                  }
-                  return;
-                }
-
-                fileIds.forEach(function(fileId) {
-                  BX24.callMethod('disk.file.get', { id: fileId }, function(fileResult) {
-                    if (fileResult.data()) {
-                      allFiles.push(fileResult.data());
-                    }
-                    filesLoaded++;
-
-                    if (filesLoaded === fileIds.length) {
-                      smartProcessesLoaded++;
-                      if (smartProcessesLoaded === smartIds.length) {
-                        renderFiles(allFiles);
-                      }
-                    }
+    log('Страница загружена');
+    log('typeof BX24: ' + typeof BX24);
+    if (typeof BX24 === 'undefined') {
+      log('BX24 SDK не загружен!', 'error');
+    } else {
+      log('BX24 SDK загружен', 'success');
+      BX24.init(function() {
+        log('BX24.init() выполнен', 'success');
+        BX24.placement.options(function(opts) {
+          log('Placement: ' + JSON.stringify(opts), 'success');
+          var dealId = opts.ID;
+          if (!dealId) { log('ID Сделки не получен!', 'error'); return; }
+          log('ID Сделки: ' + dealId, 'success');
+          BX24.callMethod('crm.deal.get', { id: dealId }, function(r) {
+            if (!r.data()) { log('Сделка не найдена!', 'error'); return; }
+            log('Сделка: ' + r.data().TITLE, 'success');
+            var ids = r.data()['UF_CRM_1751384703'] || [];
+            log('Смарт-процессов: ' + ids.length + ' → ' + JSON.stringify(ids));
+            if (!ids.length) {
+              document.getElementById('app').innerHTML = '<div class="empty-state">📂 Нет привязанных процессов</div>';
+              return;
+            }
+            var all = [], done = 0;
+            ids.forEach(function(sid) {
+              BX24.callMethod('crm.item.get', { id: sid, entityTypeId: 'DYNAMIC_1042' }, function(ir) {
+                if (ir.data()) {
+                  var fids = ir.data()[FILE_FIELD_CODE] || [];
+                  log('СП ' + sid + ': файлов ' + fids.length);
+                  if (!fids.length) { done++; if (done === ids.length) render(all); return; }
+                  var fd = 0;
+                  fids.forEach(function(fid) {
+                    BX24.callMethod('disk.file.get', { id: fid }, function(fr) {
+                      if (fr.data()) all.push(fr.data());
+                      fd++; if (fd === fids.length) { done++; if (done === ids.length) render(all); }
+                    });
                   });
-                });
-              } else {
-                smartProcessesLoaded++;
-                if (smartProcessesLoaded === smartIds.length) {
-                  renderFiles(allFiles);
-                }
-              }
+                } else { done++; if (done === ids.length) render(all); }
+              });
             });
           });
         });
       });
-    });
-
-    // === РЕНДЕРИНГ ===
-    function renderFiles(files) {
-      if (files.length === 0) {
-        document.getElementById('app').innerHTML =
-          '<div class="empty-state">📂 В привязанных процессах нет фото</div>';
+    }
+    function render(files) {
+      if (!files.length) {
+        document.getElementById('app').innerHTML = '<div class="empty-state">📂 Нет фото</div>';
         return;
       }
-
-      let html = '<div class="widget-title">📸 Фото ковров до стирки (' + files.length + ')</div>';
-      html += '<div class="file-list">';
-
-      files.forEach(function(file) {
-        html += '<div class="file-item">' +
-          '<div class="file-icon">' + getFileIcon(file.NAME) + '</div>' +
-          '<div class="file-info">' +
-            '<div class="file-name">' + file.NAME + '</div>' +
-            '<div class="file-size">' + formatSize(file.SIZE) + '</div>' +
-          '</div>' +
-          '<a class="download-btn" href="' + file.DOWNLOAD_URL +
-            '&auth=' + BX24.getAuth().access_token +
-            '" target="_blank">Скачать</a>' +
-        '</div>';
+      var h = '<div class="widget-title">📸 Фото ковров до стирки (' + files.length + ')</div><div class="file-list">';
+      files.forEach(function(f) {
+        h += '<div class="file-item"><div class="file-icon">🖼️</div><div class="file-info"><div class="file-name">' + f.NAME + '</div><div class="file-size">' + formatSize(f.SIZE) + '</div></div><a class="download-btn" href="' + f.DOWNLOAD_URL + '&auth=' + BX24.getAuth().access_token + '" target="_blank">Скачать</a></div>';
       });
-
-      html += '</div>';
-      document.getElementById('app').innerHTML = html;
-
-      // Подгоняем высоту фрейма под содержимое
+      h += '</div>';
+      document.getElementById('app').innerHTML = h;
       BX24.placement.call('setHeight', document.body.scrollHeight + 20);
     }
   </script>
